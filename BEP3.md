@@ -92,7 +92,7 @@ Client Tooling is the part to help user experience. While the most commonly used
 
 ## New Transaction Types on Binance Chain
 
-The below are the details for HTLT and CHLT.
+The below are the details for HTLT and CHTL.
 
 ### Hash Timer Locked Transfer
 
@@ -102,9 +102,11 @@ Hash Timer Locked Transfer (HTLT) is a new transaction type on Binance Chain, to
 | -----| ---- | ----------- | -------- |
 | From | Address | Sender address, where the asset is from | No| 
 | To | Address | Receiver address, where the asset is to, if the proper condition meets. This address must be flagged with HTLT flag in order to claim the transfer to be fully done once the hashed secret is disclosed by Sender. | No | 
-| ToOnOtherChain  | bytes   | an byte array, maximum 32 bytes, in any proper encoding | No            | 
-| Random Number Hash | 32 bytes   | hash of a random number, based on SHA256 | No |
-| Coins | []Coin   |similar to the Coins in the original Transfer defined in BEP2| No | 
+| ToOnOtherChain | bytes | a byte array, maximum 32 bytes, in any proper encoding | No  | 
+| RandomNumberHash | 32 bytes | hash of a random number and timestamp, based on SHA256 | No |
+| Timestamp | int64 | counted by second, the gap between timestamp and block time should not be more than one day | No |
+| CoinIn | Coin |similar to the Coin in the original Transfer defined in BEP2, asset to swap in | No | 
+| CoinOut | Coin |similar to the Coin in the original Transfer defined in BEP2, asset to swap out | No | 
 | TimeSpan | int64   | number of blocks to wait before the asset may be returned to From if not claimed via Random. The number must be larger than or equal to 360 (>2 minutes), and smaller than 518400 (< 48 hours) | No |
 
 Before the above `To` claims the transferred Coins with the correct random number that can generate the same Random Hash, the Coins will not appear as balance on `To` address. The transaction is signed by private key for `From` address.
@@ -117,39 +119,51 @@ Claim Hash Timer Locked (CHTL) is to claim the locked asset by showing the Rando
 | Name | Type | Description | Optional |
 | -----| ---- | ----------- | -------- |
 | From | Address | Sender address, where the asset is from | No| 
-| Random Number Hash | 32 bytes   | hash of a random number, based on SHA256 | No |
-| transaction hash | bytes | the hash of HTLT transaction that locked the asset | No| 
+| RandomNumber | 32 bytes   | secret random number | No |
+
+### Refund Hash Timer Locked
+
+Refund Hash Timer Locked (RHTL) is to refund the locked asset after timelock is expired. 
+
+| Name | Type | Description | Optional |
+| -----| ---- | ----------- | -------- |
+| From | Address | Sender address, where the asset is from | No| 
+| RandomNumberHash | 32 bytes | hash of a random number and timestamp, based on SHA256 | No |
 
 ## APS Smart Contract Interface for Other Blockchain
 
 ### Transaction interfaces
 
-1. function **initiateSwap**(bytes32 _swapID, bytes32 _secretHashLock, uint256 _timelock, address _traderAddr, address _BEP2Addr, uint256 _amount)
-    1. client transfer tokens to swap contract
-    2. emit SwapInitialization event
-2. function **refund**(bytes32 _swapID)
-    1. only accessible when timelock is expired
-    2. unlock the received token and refund to swap initializer address
+1. function **initiate**(bytes32 _secretHashLock, uint256 _timestamp, uint256 _timelock, address _receiverAddr, bytes32 _BEP2Addr, uint256 _outAmount, uint256 _inAmount)
+    1. Transfer tokens from client address to swap contract address
+    2. Create swap record and save it with _secretHashLock as key
+    3. The gap between `_timestamp` and block time should not be more than one day.
+    4. `_timelock` is the number of blocks to wait before the asset may be returned
+    5. emit SwapInitialization event
+2. function **refund**(bytes32 _secretHashLock)
+    1. Only accessible when timelock is expired
+    2. Refund token to swap initializer
     3. emit SwapExpire event
-3. function **claim**(bytes32 _swapID, bytes32 _secretKey)
+3. function **claim**(bytes32 _secretHashLock, bytes32 _secretKey)
     1. timelock must not be expired
     2. verify the secretKey against secretHashLock
-    3. transfer token from swap contract to trader address
+    3. transfer token from swap contract address to receiver address
     4. emit SwapCompletion event
 
 ### Query interfaces
 
-1. function **querySecret**(bytes32 _swapID) returns(bytes32)
-2. function **swapID**(bytes32 _secretHashLock, uint256 _timelock) returns (bytes32)
-3. function **initiatable**(bytes32 _swapID) return (bool)
-4. function **refundable**(bytes32 _swapID) returns (bool)
-5. function **claimable**(bytes32 _swapID) returns (bool)
+1. function **initiatable**(bytes32 _secretHashLock) returns (bool)
+2. function **refundable**(bytes32 _secretHashLock) returns (bool)
+3. function **claimable**(bytes32 _secretHashLock) returns (bool)
+4. function **querySwapByHashLock**(bytes32 _secretHashLock) returns (uint256 _timestamp,  uint256 _expireHeight, uint256 _outAmount, uint256 _inAmount, address _sender, address _receiver, bytes32 _BEP2Addr, bytes32 _secretKey, uint8 _status)
+5. function **querySwapByIndex**(uin256 _index) returns (bytes32 _secretHashLock, uint256 _timestamp, uint256 _expireHeight, uint256 _outAmount, uint256 _inAmount, address _sender, address _receiver, bytes32 _BEP2Addr, bytes32 _secretKey, uint8 _status)
+6. function **index**() returns (uint256 _index)
 
 ### Event
 
-1. event **SwapInitialization**(bytes32 _swapID, bytes32 _secretHashLock, uint256 _timelock, address _traderAddr, uint256 _amount);
-2. event **SwapExpire**(bytes32 _swapID);
-3. event **SwapCompletion**(bytes32 _swapID, bytes32 _secretKey);
+1. event **SwapInitialization**(address indexed _senderAddr, address indexed _receiverAddr, bytes32 _BEP2Addr, uint256 _index, bytes32 _secretHashLock, uint256 _timestamp, uint256 _expireHeight, uint256 _outAmount, uint256 _inAmount);
+2. event **SwapExpire**(address indexed _senderAddr, address indexed _receiverAddr, bytes32 _secretHashLock);
+3. event **SwapCompletion**(address indexed _senderAddr, address indexed _receiverAddr, bytes32 _secretHashLock, bytes32 _secretKey);
 
 ## License
 
